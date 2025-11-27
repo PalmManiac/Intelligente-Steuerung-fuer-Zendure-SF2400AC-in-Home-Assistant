@@ -1,0 +1,38 @@
+- sensor:
+    - name: "Zendure Debug Planung"
+      unique_id: zendure_debug_planung
+      state: >
+        {% set soc = states('sensor.solarflow_2400_ac_electric_level')|float(0) %}
+        {% set battery_kwh = 5.76 %}
+        {% set available = battery_kwh * soc / 100 %}
+
+        {% set expensive = states('sensor.zendure_teuer_schwelle')|float(0.35) %}
+
+        {% set prognose_today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','today') %}
+        {% set prognose_tomo  = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','tomorrow') %}
+
+        {% set prices = [] %}
+        {% if prognose_today %}
+          {% set prices = prices + (prognose_today | map(attribute='total') | list) %}
+        {% endif %}
+        {% if prognose_tomo %}
+          {% set prices = prices + (prognose_tomo | map(attribute='total') | list) %}
+        {% endif %}
+
+        {% if prices | length == 0 %}
+          Keine Prognosedaten vorhanden
+        {% else %}
+          {% set peak_slots = prices | select('>=', expensive) | list %}
+          {% set peak_hours = peak_slots | length * 0.25 %}
+          {% set max_discharge = states('input_number.zendure_max_entladeleistung')|float(700) %}
+          {% set needed_kwh = (peak_hours * max_discharge) / 1000 %}
+          Peaks: {{ peak_hours|round(2) }} h · Bedarf: {{ needed_kwh|round(2) }} kWh · Akku: {{ available|round(2) }} kWh
+        {% endif %}
+
+    - name: "Zendure Entscheidungsstatus"
+      unique_id: zendure_entscheidungsstatus
+      state: >
+        Empfehlung: {{ states('sensor.zendure_akku_steuerungsempfehlung') }} |
+        KI-Plan: {{ states('sensor.zendure_ki_ladeplan') }} |
+        SoC: {{ states('sensor.solarflow_2400_ac_electric_level') }} % |
+        Preis: {{ states('sensor.electricity_price_paul_schneider_strasse_39') }} €/kWh
