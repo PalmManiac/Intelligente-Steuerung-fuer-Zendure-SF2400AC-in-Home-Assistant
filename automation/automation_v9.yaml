@@ -1,7 +1,7 @@
 alias: Zendure Akku Automatik (V9 KI + PID Pro)
 description: >
-  KI-gesteuerte Ladeplanung mit stabiler PI-Entladeregelung, Null-Einspeisung,
-  SoC-Schutz und Peak-Vorhersage.
+  KI-gesteuerte Ladeplanung mit stabiler PI-Entladeregelung (PID-Light),
+  Null-Einspeisung, SoC-Schutz (12%/8%) und Peak-Vorhersage.
 
 trigger:
   - platform: state
@@ -12,7 +12,7 @@ trigger:
       - sensor.einspeisung
       - sensor.sb2_5_1vl_40_401_pv_power
   - platform: time_pattern
-    seconds: /10
+    seconds: "/10"
 
 action:
   - variables:
@@ -26,13 +26,18 @@ action:
       pv: "{{ states('sensor.sb2_5_1vl_40_401_pv_power')|float(0) }}"
       haus: "{{ states('sensor.gesamtverbrauch')|float(0) }}"
       einspeisung: "{{ states('sensor.einspeisung')|float(0) }}"
+      bezug: "{{ states('sensor.bezug')|float(0) }}"
       preis: "{{ states('sensor.electricity_price_paul_schneider_strasse_39')|float(0) }}"
+      mode_user: "{{ states('input_select.zendure_betriebsmodus') }}"
       recommendation: "{{ states('sensor.zendure_akku_steuerungsempfehlung') }}"
+      max_charge: "{{ states('input_number.zendure_max_ladeleistung')|float(2000) }}"
       max_discharge: "{{ states('input_number.zendure_max_entladeleistung')|float(700) }}"
+      abs_tol: 10
       kp: 0.6
       ki: 0.02
       pid_i_prev: "{{ states('input_number.zendure_pid_i_term')|float(0) }}"
 
+  # Notladung bei sehr niedrigem SoC
   - choose:
       - conditions:
           - condition: template
@@ -48,12 +53,44 @@ action:
               entity_id: number.solarflow_2400_ac_input_limit
             data:
               value: "{{ notfall_power }}"
-          - stop
+          - stop: "Notladung aktiv – keine Entladung erlaubt."
 
+  # Laden (normales/billig Laden) – gesteuert über Empfehlung
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ recommendation in ['entladen','preis_entladen'] }}"
+            value_template: "{{ recommendation in ['laden','billig_laden'] and soc < soc_max }}"
+        sequence:
+          - service: select.select_option
+            target:
+              entity_id: select.solarflow_2400_ac_ac_mode
+            data:
+              option: input
+          - variables:
+              surplus: "{{ [pv - haus - 50, 0] | max }}"
+              ladeleistung: >
+                {% if recommendation == 'billig_laden' %}
+                  {{ max_charge }}
+                {% else %}
+                  {{ [surplus, max_charge] | min }}
+                {% endif %}
+          - service: number.set_value
+            target:
+              entity_id: number.solarflow_2400_ac_input_limit
+            data:
+              value: "{{ ladeleistung|round(0) }}"
+          - service: number.set_value
+            target:
+              entity_id: number.solarflow_2400_ac_output_limit
+            data:
+              value: 0
+
+  # Entladen mit PI-/PID-Light
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ recommendation in ['entladen','preis_entladen'] and soc > soc_min }}
         sequence:
           - service: select.select_option
             target:
@@ -65,8 +102,24 @@ action:
               current_output: "{{ states('number.solarflow_2400_ac_output_limit')|float(0) }}"
               error: "{{ real_load - current_output }}"
               p_term: "{{ error * kp }}"
-              i_term: "{{ pid_i_prev + error * ki }}"
-              new_output: "{{ [current_output + p_term + i_term, max_discharge] | min }}"
+              i_unclamped: "{{ pid_i_prev + error * ki }}"
+              i_term: "{{ [ [i_unclamped, 0] | max, max_discharge ] | min }}"
+              output_raw: "{{ current_output + p_term + i_term }}"
+              output_clamped: "{{ [ [output_raw, 0] | max, max_discharge ] | min }}"
+              new_output: >
+                {% if einspeisung > 30 %}
+                  {{ [real_load, max_discharge] | min }}
+                {% elif error | abs < abs_tol %}
+                  {{ current_output }}
+                {% else %}
+                  {{ output_clamped }}
+                {% endif %}
+              i_next: >
+                {% if error | abs < abs_tol %}
+                  {{ pid_i_prev * 0.9 }}
+                {% else %}
+                  {{ i_term }}
+                {% endif %}
           - service: number.set_value
             target:
               entity_id: number.solarflow_2400_ac_output_limit
@@ -74,7 +127,27 @@ action:
               value: "{{ new_output|round(0) }}"
           - service: number.set_value
             target:
+              entity_id: number.solarflow_2400_ac_input_limit
+            data:
+              value: 0
+          - service: number.set_value
+            target:
               entity_id: input_number.zendure_pid_i_term
             data:
-              value: "{{ i_term|round(2) }}"
+              value: "{{ i_next|round(2) }}"
+
+  # Standby: alles auf 0 setzen
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ recommendation == 'standby' }}"
+        sequence:
+          - service: number.set_value
+            target:
+              entity_id:
+                - number.solarflow_2400_ac_input_limit
+                - number.solarflow_2400_ac_output_limit
+            data:
+              value: 0
+
 mode: single
