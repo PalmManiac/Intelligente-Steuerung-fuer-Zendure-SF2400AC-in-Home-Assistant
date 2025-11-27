@@ -1,0 +1,12 @@
+- sensor:
+    - name: "Zendure Restlaufzeit Stunden"
+      unique_id: zendure_restlaufzeit_stunden
+      unit_of_measurement: "h"
+      state: >
+        {% set energy = states('sensor.solarflow_2400_ac_available_kwh') | float(0) %}
+        {% set haus = states('sensor.gesamtverbrauch') | float(0) %}
+        {% if haus <= 0 %}
+          unknown
+        {% else %}
+          {{ (energy / (haus / 1000)) | float | round(2) }}
+        {% endif %}
