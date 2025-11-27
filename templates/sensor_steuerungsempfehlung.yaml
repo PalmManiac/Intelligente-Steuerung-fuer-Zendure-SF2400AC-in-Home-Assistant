@@ -1,0 +1,82 @@
+- sensor:
+    - name: "Zendure Akku Steuerungsempfehlung"
+      unique_id: zendure_akku_steuerungsempfehlung
+      state: >
+        {% set soc = states('sensor.solarflow_2400_ac_electric_level') | float(0) %}
+        {% set soc_min = states('input_number.zendure_soc_reserve_min') | float(12) %}
+        {% set soc_max = states('input_number.zendure_soc_ziel_max') | float(95) %}
+        {% set soc_recover = soc_min + 5 %}
+
+        {% set pv = states('sensor.sb2_5_1vl_40_401_pv_power') | float(0) %}
+        {% set haus = states('sensor.gesamtverbrauch') | float(0) %}
+        {% set preis = states('sensor.electricity_price_paul_schneider_strasse_39') | float(0) %}
+        {% set modus = states('input_select.zendure_betriebsmodus') %}
+
+        {% set cheap = states('sensor.zendure_billig_schwelle') | float(0.15) %}
+        {% set expensive = states('sensor.zendure_teuer_schwelle') | float(0.35) %}
+
+        {% set battery_kwh = 5.76 %}
+        {% set available_kwh = (battery_kwh * soc / 100) %}
+
+        {% set prognose_today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','today') %}
+        {% set prognose_tomo  = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','tomorrow') %}
+
+        {% set today = prognose_today | map(attribute='total') | list if prognose_today else [] %}
+        {% set tomo  = prognose_tomo  | map(attribute='total') | list if prognose_tomo  else [] %}
+
+        {% set idx = ((now().hour * 60 + now().minute) // 15) | int %}
+        {% set future = (today[idx:] if today else []) + (tomo if tomo else []) %}
+
+        {% set min_price = future | min if future else preis %}
+        {% set max_price = future | max if future else preis %}
+
+        {# PV-Überschuss #}
+        {% set surplus_w = [pv - haus, 0] | max %}
+
+        {# Peak-Erkennung auf Basis der Prognose #}
+        {% set peak_slots = future | select('>=', expensive) | list %}
+        {% set peak_duration_h = peak_slots | length * 0.25 %}
+        {% set avg_needed_power = states('input_number.zendure_max_entladeleistung')|float(600) %}
+        {% set needed_kwh = (peak_duration_h * avg_needed_power) / 1000 %}
+
+        {# Dynamische Notfallgrenze #}
+        {% set soc_notfall = [soc_min - 4, 5] | max %}
+
+        {# ================= ENTSCHEIDUNGSLOGIK ================= #}
+
+        {# 1) Notfallschutz unterhalb der Notfall-SoC-Grenze #}
+        {% if soc <= soc_notfall %}
+          billig_laden
+
+        {# 2) Aktuell teure Zeit → Entladen hat Vorrang #}
+        {% elif preis >= expensive and soc > soc_min %}
+          entladen
+
+        {# 3) KI-Ladeplanung: zukünftig zu wenig Energie im Akku #}
+        {% elif states('sensor.zendure_ki_ladeplan') == 'laden_erforderlich' and soc < soc_max %}
+          billig_laden
+
+        {# 4) Bereich knapp oberhalb der Reserve → vorsichtig #}
+        {% elif soc < soc_recover %}
+          standby
+
+        {# 5) PV-Überschuss → Laden #}
+        {% elif surplus_w > 80 %}
+          laden
+
+        {# 6) Sommermodus → keine aggressive Netzladung #}
+        {% elif modus == 'Sommer' %}
+          standby
+
+        {# 7) Wintermodus → günstige Preisfenster nutzen #}
+        {% elif modus == 'Winter' %}
+          {% if preis <= cheap %}
+            billig_laden
+          {% else %}
+            standby
+          {% endif %}
+
+        {# 8) Default #}
+        {% else %}
+          standby
+        {% endif %}
