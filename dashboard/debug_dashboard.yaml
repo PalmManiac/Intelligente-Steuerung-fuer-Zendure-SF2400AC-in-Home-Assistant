@@ -1,0 +1,58 @@
+type: vertical-stack
+cards:
+  - type: markdown
+    content: |
+      ## 🔋 Zendure SF2400AC – KI + PID Debug
+
+  - type: entities
+    title: Empfehlung & KI-Status
+    show_header_toggle: false
+    entities:
+      - entity: sensor.zendure_akku_steuerungsempfehlung
+        name: Steuerungsempfehlung
+      - entity: sensor.zendure_ki_ladeplan
+        name: KI-Ladeplan
+      - entity: sensor.zendure_debug_planung
+        name: Peak-Analyse
+      - entity: sensor.zendure_entscheidungsstatus
+        name: Entscheidungsstatus
+
+  - type: entities
+    title: Live-Werte
+    show_header_toggle: false
+    entities:
+      - entity: sensor.solarflow_2400_ac_electric_level
+        name: Ladezustand (SoC)
+      - entity: sensor.solarflow_2400_ac_available_kwh
+        name: Verfügbare Akku-Energie (kWh)
+      - entity: sensor.zendure_restlaufzeit_stunden
+        name: Restlaufzeit (h)
+      - entity: sensor.gesamtverbrauch
+        name: Hausverbrauch (W)
+      - entity: sensor.sb2_5_1vl_40_401_pv_power
+        name: PV-Leistung (W)
+      - entity: sensor.electricity_price_paul_schneider_strasse_39
+        name: Strompreis aktuell
+
+  - type: entities
+    title: Limits & Einstellungen
+    show_header_toggle: false
+    entities:
+      - entity: input_select.zendure_betriebsmodus
+        name: Betriebsmodus
+      - entity: input_number.zendure_soc_reserve_min
+        name: SoC Reserve Min (%)
+      - entity: input_number.zendure_soc_ziel_max
+        name: SoC Ziel Max (%)
+      - entity: input_number.zendure_max_ladeleistung
+        name: Max. Ladeleistung (W)
+      - entity: input_number.zendure_max_entladeleistung
+        name: Max. Entladeleistung (W)
+      - entity: input_number.zendure_notladeleistung
+        name: Notladeleistung (W)
+      - entity: input_number.zendure_pid_i_term
+        name: PID I-Term (intern)
+      - entity: number.solarflow_2400_ac_input_limit
+        name: Aktuelles Eingangs-Limit (W)
+      - entity: number.solarflow_2400_ac_output_limit
+        name: Aktuelles Ausgangs-Limit (W)
