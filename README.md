@@ -1,0 +1,1 @@
+# Intelligente-Steuerung-fuer-Zendure-SF2400AC-in-Home-Assistant
