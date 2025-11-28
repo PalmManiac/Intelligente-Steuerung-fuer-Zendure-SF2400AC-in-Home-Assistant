@@ -66,6 +66,7 @@ Ziele:
 ## 🧱 Voraussetzungen
 
 - Home Assistant (2024.x oder neuer empfohlen)
+- In der Zendure-App die Grenze für Laden und Entladen auf maximum (2400Watt) stellen
 - Integration(en) für:
   - Zendure SolarFlow 2400 AC (Custom-Integration / Add-on)
   - dynamische Strompreise (z. B. Tibber)
