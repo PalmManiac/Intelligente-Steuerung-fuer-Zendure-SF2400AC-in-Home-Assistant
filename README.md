@@ -67,6 +67,8 @@ Ziele:
 
 - Home Assistant (2024.x oder neuer empfohlen)
 - In der Zendure-App die Grenze für Laden und Entladen auf maximum (2400Watt) stellen
+- Die Tibber-Preise für Heute und Morgen mit Hilfe der folgenden Anleitung einrichten: 
+  https://www.secretisland.de/home-assistant-tibber-preise-15-minuten-intervall/
 - Integration(en) für:
   - Zendure SolarFlow 2400 AC (Custom-Integration / Add-on)
   - dynamische Strompreise (z. B. Tibber)
