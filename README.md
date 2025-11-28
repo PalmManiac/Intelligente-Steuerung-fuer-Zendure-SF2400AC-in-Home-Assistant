@@ -1,4 +1,4 @@
-# 🔋 Intelligente Steuerung für Zendure SolarFlow SF2400AC in Home Assistant
+# 🔋 Intelligente Steuerung für Zendure SolarFlow 2400AC in Home Assistant
 
 Dieses Projekt enthält eine **vollautomatische, praxiserprobte Steuerung** für den
 **Zendure SolarFlow 2400 AC** in **Home Assistant**.
