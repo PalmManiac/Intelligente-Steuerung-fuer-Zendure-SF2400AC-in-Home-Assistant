@@ -1,6 +1,6 @@
 # 🚀 INSTALLATION -- Zendure SolarFlow 2400 AC Pro KI-Steuerung
 
-**Version V9 (KI + PID + Null-Einspeisung + Peak-Vorhersage)**
+**Version V10.2 (KI + PID + Null-Einspeisung + Peak-Vorhersage)**
 
 Diese Anleitung beschreibt die vollständige Einrichtung der
 KI-gestützten, dynamischen Steuerung für den Zendure SolarFlow 2400 AC
