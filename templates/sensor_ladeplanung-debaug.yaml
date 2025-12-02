@@ -1,0 +1,56 @@
+{% set soc = states('sensor.solarflow_2400_ac_electric_level')|float(0) %}
+{% set soc_min = states('input_number.zendure_soc_reserve_min')|float(12) %}
+{% set battery_kwh = 5.76 %}
+
+{# nutzbare Energie (oberhalb SoC-Min) #}
+{% set usable_soc = [soc - soc_min, 0] | max %}
+{% set usable_kwh = battery_kwh * usable_soc / 100 %}
+
+{# Preisprognosen #}
+{% set prognose_today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','today') %}
+{% set prognose_tomo  = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','tomorrow') %}
+
+{% if not prognose_today and not prognose_tomo %}
+  [Future Mode] Fehler: Keine Preisdaten verfügbar
+{% else %}
+  {% set today = prognose_today | map(attribute='total') | list if prognose_today else [] %}
+  {% set tomo  = prognose_tomo  | map(attribute='total') | list if prognose_tomo  else [] %}
+
+  {% set idx = ((now().hour * 60 + now().minute) // 15) | int %}
+  {% set future = (today[idx:] if today else []) + tomo %}
+
+  {% if future | count == 0 %}
+    [Future Mode] Fehler: Zukunft leer
+  {% else %}
+
+    {% set expensive = states('input_number.zendure_schwelle_teuer') | float(0.35) %}
+    {% set power = states('input_number.zendure_max_entladeleistung') | float(700) %}  {# <-- Dynamisch! #}
+
+    {# Peak-Blöcke finden #}
+    {% set ns = namespace(idx=[], i=0) %}
+    {% for p in future %}
+      {% if p >= expensive %}
+        {% set ns.idx = ns.idx + [ns.i] %}
+      {% endif %}
+      {% set ns.i = ns.i + 1 %}
+    {% endfor %}
+
+    {% if ns.idx | count == 0 %}
+      [Future Mode] Keine Peaks erkannt | Akku: {{ usable_kwh|round(2) }} kWh
+    {% else %}
+      {% set total_peak_hours = ns.idx | count * 0.25 %}
+      {% set effective_peak_hours = [total_peak_hours, 6] | min %}
+      {% set needed_kwh = (effective_peak_hours * power) / 1000 %}
+
+      {% set max_price = future | max %}
+      {% set hours_to_max = (future.index(max_price) * 0.25) %}
+
+      [Future Mode] Blöcke: {{ (total_peak_hours/0.25)|round(0) }}
+      | Peakstunden gesamt: {{ total_peak_hours }}h
+      | Relevante Peakstunden: {{ effective_peak_hours }}h
+      | Bedarf ({{ power }}W): {{ needed_kwh | round(2) }} kWh
+      | Nutzbar: {{ usable_kwh | round(2) }} kWh
+      | Max-Preis: {{ max_price }} €/kWh (in {{ hours_to_max|round(1) }}h)
+    {% endif %}
+  {% endif %}
+{% endif %}
