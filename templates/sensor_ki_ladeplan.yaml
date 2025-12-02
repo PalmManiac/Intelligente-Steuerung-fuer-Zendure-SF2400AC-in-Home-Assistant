@@ -1,34 +1,109 @@
-- sensor:
-    - name: "Zendure KI Ladeplan"
-      unique_id: zendure_ki_ladeplan
-      state: >
-        {% set soc = states('sensor.solarflow_2400_ac_electric_level')|float(0) %}
-        {% set battery_kwh = 5.76 %}
-        {% set available = battery_kwh * soc / 100 %}
+{# --- Basiswerte --- #}
+{% set soc          = states('sensor.solarflow_2400_ac_electric_level') | float(0) %}
+{% set soc_min      = states('input_number.zendure_soc_reserve_min')    | float(12) %}
+{% set soc_max      = states('input_number.zendure_soc_ziel_max')       | float(95) %}
+{% set battery_kwh  = 5.76 %}
+{% set max_discharge = states('input_number.zendure_max_entladeleistung') | float(700) %}
 
-        {% set prognose_today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','today') %}
-        {% set prognose_tomo  = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','tomorrow') %}
+{# nutzbare Energie nur oberhalb SoC-Minimum #}
+{% set usable_soc  = [soc - soc_min, 0] | max %}
+{% set usable_kwh  = battery_kwh * usable_soc / 100 %}
 
-        {% set prices = [] %}
-        {% if prognose_today %}
-          {% set prices = prices + (prognose_today | map(attribute='total') | list) %}
-        {% endif %}
-        {% if prognose_tomo %}
-          {% set prices = prices + (prognose_tomo | map(attribute='total') | list) %}
-        {% endif %}
+{# Preisprognose laden #}
+{% set prognose_today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39', 'today') %}
+{% set prognose_tomo  = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39', 'tomorrow') %}
 
-        {% if prices | length == 0 %}
-          unbekannt
-        {% else %}
-          {% set expensive = states('sensor.zendure_teuer_schwelle')|float(0.35) %}
-          {% set peak_slots = prices | select('>=', expensive) | list %}
-          {% set peak_hours = peak_slots | length * 0.25 %}
-          {% set max_discharge = states('input_number.zendure_max_entladeleistung')|float(700) %}
-          {% set needed_kwh = (peak_hours * max_discharge) / 1000 %}
+{% if not prognose_today and not prognose_tomo %}
+  keine_daten
+{% else %}
+  {# Listen in einfache Preis-Arrays umwandeln #}
+  {% set today = prognose_today | map(attribute='total') | list if prognose_today else [] %}
+  {% set tomo  = prognose_tomo  | map(attribute='total') | list if prognose_tomo  else [] %}
 
-          {% if available < needed_kwh %}
+  {# Startindex ab "jetzt" (15-Minuten-Slots) #}
+  {% set idx    = ((now().hour * 60 + now().minute) // 15) | int %}
+  {% set future = (today[idx:] if today else []) + tomo %}
+
+  {% if future | count == 0 %}
+    keine_daten
+  {% else %}
+
+    {# Preis-Schwelle "teuer" aus Helfer #}
+    {% set expensive = states('input_number.zendure_schwelle_teuer') | float(0.35) %}
+
+    {# sortierte Liste für min/Median #}
+    {% set sorted  = future | sort %}
+    {% set min_p   = sorted[0] %}
+    {% set median  = sorted[ (sorted | count // 2) ] %}
+
+    {# Peak-Slots sammeln (alle ≥ teuer) #}
+    {% set ns = namespace(peak_idx=[], i=0) %}
+    {% for p in future %}
+      {% if p >= expensive %}
+        {% set ns.peak_idx = ns.peak_idx + [ns.i] %}
+      {% endif %}
+      {% set ns.i = ns.i + 1 %}
+    {% endfor %}
+
+    {% if ns.peak_idx | count == 0 %}
+      keine_peaks
+    {% else %}
+
+      {# Gesamt-Peakstunden (nur für Debug) #}
+      {% set total_peak_hours = (ns.peak_idx | count) * 0.25 %}
+
+      {# Für die Ladeplanung maximal 6h Peak berücksichtigen #}
+      {% set effective_peak_hours = [total_peak_hours, 6] | min %}
+
+      {# Energiebedarf für diese "relevanten" Peaks #}
+      {% set needed_kwh = (effective_peak_hours * max_discharge) / 1000 %}
+
+      {# Zeit bis zum ersten Peak #}
+      {% set first_idx        = ns.peak_idx[0] %}
+      {% set first_peak_hours = first_idx * 0.25 %}
+
+      {# aktueller Preis #}
+      {% set current_price = states('sensor.electricity_price_paul_schneider_strasse_39') | float(0) %}
+
+      {# "billig genug" Bereiche um das Preis-Minimum herum #}
+      {% set cheap_band  = min_p + 0.03   %}  {# ~3 ct über absolutem Minimum #}
+      {% set tight_band  = min_p + 0.015  %}  {# sehr nah am Minimum #}
+
+      {# --- Haupt-Entscheidung --- #}
+
+      {# Akku voll → nichts planen #}
+      {% if soc >= soc_max %}
+        akku_voll
+
+      {# kein relevanter Bedarf (z.B. effective_peak_hours == 0) #}
+      {% elif needed_kwh <= 0 %}
+        keine_peaks
+
+      {# nutzbare Energie reicht aus #}
+      {% elif usable_kwh >= needed_kwh %}
+        ausreichend_geladen
+
+      {# nutzbare Energie reicht NICHT → Ladeplanung nötig #}
+      {% else %}
+
+        {# Peak in ≤ 8h → Ladestart eher aggressiv #}
+        {% if first_peak_hours <= 8 %}
+          {% if current_price <= cheap_band %}
             laden_erforderlich
           {% else %}
-            ausreichend_geladen
+            laden_bald
+          {% endif %}
+
+        {# Peak später als 8h → wir können auf ein günstigeres Fenster warten #}
+        {% else %}
+          {% if current_price <= tight_band %}
+            laden_erforderlich
+          {% else %}
+            laden_spaeter
           {% endif %}
         {% endif %}
+
+      {% endif %}
+    {% endif %}
+  {% endif %}
+{% endif %}
