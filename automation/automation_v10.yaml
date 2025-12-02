@@ -1,7 +1,7 @@
-alias: Zendure Akku Automatik (V9 KI + PID Pro)
+alias: Zendure Akku Automatik (V10 KI + PID Pro)
 description: >
   KI-gesteuerte Ladeplanung mit stabiler PI-Entladeregelung (PID-Light),
-  Null-Einspeisung, SoC-Schutz (12%/8%) und Peak-Vorhersage.
+  Null-Einspeisung, SoC-Schutz (Reserve/Notfall) und Peak-Vorhersage.
 triggers:
   - trigger: state
     entity_id:
@@ -12,6 +12,7 @@ triggers:
       - sensor.sb2_5_1vl_40_401_pv_power
   - trigger: time_pattern
     seconds: /10
+conditions: []
 actions:
   - variables:
       soc: "{{ states('sensor.solarflow_2400_ac_electric_level')|float(0) }}"
@@ -62,7 +63,9 @@ actions:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ recommendation in ['laden','billig_laden'] and soc < soc_max }}"
+            value_template: >
+              {{ recommendation in ['laden','billig_laden','ki_laden'] and soc <
+              soc_max }}
         sequence:
           - action: select.select_option
             target:
@@ -72,7 +75,7 @@ actions:
           - variables:
               surplus: "{{ [pv - haus - 50, 0] | max }}"
               ladeleistung: |
-                {% if recommendation == 'billig_laden' %}
+                {% if recommendation in ['billig_laden', 'ki_laden'] %}
                   {{ max_charge }}
                 {% else %}
                   {{ [surplus, max_charge] | min }}
@@ -110,7 +113,7 @@ actions:
               output_clamped: "{{ [ [output_raw, 0] | max, max_discharge ] | min }}"
               new_output: |
                 {% if einspeisung > 30 %}
-                  {# Sofortiger Eingriff bei Einspeisung: Netz Richtung 0 ziehen #}
+                  {# Sofortiger Eingriff bei Einspeisung: Netz in Richtung 0 ziehen #}
                   {{ [real_load, max_discharge] | min }}
                 {% elif error | abs < abs_tol %}
                   {# Totzone: kleine Abweichung → nichts tun #}
@@ -120,7 +123,7 @@ actions:
                 {% endif %}
               i_next: |
                 {% if error | abs < abs_tol %}
-                  {# In Totzone I-Term langsam abbauen, damit er nicht aufschaukelt #}
+                  {# In der Totzone I-Term langsam abbauen, um Überschwingen zu vermeiden #}
                   {{ pid_i_prev * 0.9 }}
                 {% else %}
                   {{ i_term }}
