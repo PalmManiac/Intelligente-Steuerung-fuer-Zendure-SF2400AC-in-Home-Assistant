@@ -1,0 +1,22 @@
+{% set today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','today') %}
+{% set tomorrow = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','tomorrow') %}
+{% set exp = states('input_number.zendure_schwelle_teuer')|float(0.35) %}
+
+{% set prices = [] %}
+{% if today %}{% set prices = prices + today|map(attribute='total')|list %}{% endif %}
+{% if tomorrow %}{% set prices = prices + tomorrow|map(attribute='total')|list %}{% endif %}
+
+{% if not prices %}
+  keine_preisdaten
+{% else %}
+  {% set blocks = [] %}
+  {% for p in prices %}
+    {% if p >= exp %}
+      {% set blocks = blocks + ['█'] %}
+    {% else %}
+      {% set blocks = blocks + ['·'] %}
+    {% endif %}
+  {% endfor %}
+
+  {{ blocks|join('') }}
+{% endif %}
