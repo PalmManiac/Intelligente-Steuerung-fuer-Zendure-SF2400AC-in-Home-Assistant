@@ -29,7 +29,7 @@
 - Debug-Dashboard:
   - Anzeige von Empfehlung, KI-Plan, SoC, Preis, Limits und Live-Daten
 
-## [10.2] – Dezember 2025
+## v1.1.0 - V10.2 – Dezember 2025
 
 ### Neu
 - KI-Ladeplan Pro (Future-Mode Peak Prediction)
