@@ -3,80 +3,79 @@
       unique_id: zendure_akku_steuerungsempfehlung
       state: >
         {% set soc = states('sensor.solarflow_2400_ac_electric_level') | float(0) %}
-        {% set soc_min = states('input_number.zendure_soc_reserve_min') | float(12) %}
-        {% set soc_max = states('input_number.zendure_soc_ziel_max') | float(95) %}
-        {% set soc_recover = soc_min + 5 %}
+{% set soc_min = states('input_number.zendure_soc_reserve_min') | float(12) %}
+{% set soc_max = states('input_number.zendure_soc_ziel_max') | float(95) %}
 
-        {% set pv = states('sensor.sb2_5_1vl_40_401_pv_power') | float(0) %}
-        {% set haus = states('sensor.gesamtverbrauch') | float(0) %}
-        {% set preis = states('sensor.electricity_price_paul_schneider_strasse_39') | float(0) %}
-        {% set modus = states('input_select.zendure_betriebsmodus') %}
+{# Notfallgrenze dynamisch: 4% unter soc_min, aber nie unter 5% #}
+{% set soc_notfall = [soc_min - 4, 5] | max %}
 
-        {% set cheap = states('sensor.zendure_billig_schwelle') | float(0.15) %}
-        {% set expensive = states('sensor.zendure_teuer_schwelle') | float(0.35) %}
+{% set pv = states('sensor.sb2_5_1vl_40_401_pv_power') | float(0) %}
+{% set haus = states('sensor.gesamtverbrauch') | float(0) %}
+{% set preis = states('sensor.electricity_price_paul_schneider_strasse_39') | float(0) %}
+{% set modus = states('input_select.zendure_betriebsmodus') %}
 
-        {% set battery_kwh = 5.76 %}
-        {% set available_kwh = (battery_kwh * soc / 100) %}
+{% set cheap = states('sensor.zendure_billig_schwelle') | float(0.15) %}
+{% set expensive = states('sensor.zendure_teuer_schwelle') | float(0.35) %}
 
-        {% set prognose_today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','today') %}
-        {% set prognose_tomo  = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','tomorrow') %}
+{% set battery_kwh = 5.76 %}
+{% set available_kwh = (battery_kwh * soc / 100) %}
 
-        {% set today = prognose_today | map(attribute='total') | list if prognose_today else [] %}
-        {% set tomo  = prognose_tomo  | map(attribute='total') | list if prognose_tomo  else [] %}
+{% set prognose_today = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','today') %}
+{% set prognose_tomo  = state_attr('sensor.strompreis_prognose_15min_paul_schneider_strasse_39','tomorrow') %}
 
-        {% set idx = ((now().hour * 60 + now().minute) // 15) | int %}
-        {% set future = (today[idx:] if today else []) + (tomo if tomo else []) %}
+{% set today = prognose_today | map(attribute='total') | list if prognose_today else [] %}
+{% set tomo  = prognose_tomo  | map(attribute='total') | list if prognose_tomo  else [] %}
 
-        {% set min_price = future | min if future else preis %}
-        {% set max_price = future | max if future else preis %}
+{% set idx    = ((now().hour * 60 + now().minute) // 15) | int %}
+{% set future = (today[idx:] if today else []) + (tomo if tomo else []) %}
 
-        {# PV-Überschuss #}
-        {% set surplus_w = [pv - haus, 0] | max %}
+{% set min_price = future | min if future else preis %}
+{% set max_price = future | max if future else preis %}
 
-        {# Peak-Erkennung auf Basis der Prognose #}
-        {% set peak_slots = future | select('>=', expensive) | list %}
-        {% set peak_duration_h = peak_slots | length * 0.25 %}
-        {% set avg_needed_power = states('input_number.zendure_max_entladeleistung')|float(600) %}
-        {% set needed_kwh = (peak_duration_h * avg_needed_power) / 1000 %}
+{# PV-Überschuss #}
+{% set surplus_w = [pv - haus, 0] | max %}
 
-        {# Dynamische Notfallgrenze #}
-        {% set soc_notfall = [soc_min - 4, 5] | max %}
+{# Peak-Erkennung (für Debug/Überblick) #}
+{% set peak_slots      = future | select('>=', expensive) | list %}
+{% set peak_duration_h = peak_slots | length * 0.25 %}
+{% set avg_needed_power = states('input_number.zendure_max_entladeleistung') | float(600) %}
+{% set needed_kwh = (peak_duration_h * avg_needed_power) / 1000 %}
 
-        {# ================= ENTSCHEIDUNGSLOGIK ================= #}
+{# ================= ENTSCHEIDUNGSLOGIK V9.2 ================= #}
 
-        {# 1) Notfallschutz unterhalb der Notfall-SoC-Grenze #}
-        {% if soc <= soc_notfall %}
-          billig_laden
+{# 1) NOTFALL: tief unter Reserve → sofort und klar laden #}
+{% if soc <= soc_notfall %}
+  billig_laden
 
-        {# 2) Aktuell teure Zeit → Entladen hat Vorrang #}
-        {% elif preis >= expensive and soc > soc_min %}
-          entladen
+{# 2) AKTUELLE TEURE ZEIT → Entladen hat Vorrang, solange genug Puffer über soc_min #}
+{% elif preis >= expensive and soc > (soc_min + 2) %}
+  entladen
 
-        {# 3) KI-Ladeplanung: zukünftig zu wenig Energie im Akku #}
-        {% elif states('sensor.zendure_ki_ladeplan') == 'laden_erforderlich' and soc < soc_max %}
-          billig_laden
+{# 3) KI-LADEPLANUNG: vorausschauendes Laden, unabhängig vom cheap-Preisfenster #}
+{% elif states('sensor.zendure_ki_ladeplan') == 'laden_erforderlich' and soc < soc_max %}
+  ki_laden
 
-        {# 4) Bereich knapp oberhalb der Reserve → vorsichtig #}
-        {% elif soc < soc_recover %}
-          standby
+{# 4) SCHUTZZONE: zwischen Notfall und soc_min → keine Entladung, aber auch kein Zwangsladen #}
+{% elif soc <= soc_min %}
+  standby
 
-        {# 5) PV-Überschuss → Laden #}
-        {% elif surplus_w > 80 %}
-          laden
+{# 5) PV-Überschuss → immer nutzen, wenn vorhanden #}
+{% elif surplus_w > 80 %}
+  laden
 
-        {# 6) Sommermodus → keine aggressive Netzladung #}
-        {% elif modus == 'Sommer' %}
-          standby
+{# 6) SOMMER: Autarkie-freundlich, aber ohne Netz-Ladeorgien #}
+{% elif modus == 'Sommer' %}
+  standby
 
-        {# 7) Wintermodus → günstige Preisfenster nutzen #}
-        {% elif modus == 'Winter' %}
-          {% if preis <= cheap %}
-            billig_laden
-          {% else %}
-            standby
-          {% endif %}
+{# 7) WINTER: klassischer Billigpreis-Lademodus #}
+{% elif modus == 'Winter' %}
+  {% if preis <= cheap %}
+    billig_laden
+  {% else %}
+    standby
+  {% endif %}
 
-        {# 8) Default #}
-        {% else %}
-          standby
-        {% endif %}
+{# 8) Standard-Fall: nichts zu tun #}
+{% else %}
+  standby
+{% endif %}
