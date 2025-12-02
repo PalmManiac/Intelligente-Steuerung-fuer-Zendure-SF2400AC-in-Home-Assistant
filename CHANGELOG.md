@@ -28,3 +28,25 @@
   - `sensor.zendure_entscheidungsstatus` – kompakte Zusammenfassung
 - Debug-Dashboard:
   - Anzeige von Empfehlung, KI-Plan, SoC, Preis, Limits und Live-Daten
+
+## [10.2] – Dezember 2025
+
+### Neu
+- KI-Ladeplan Pro (Future-Mode Peak Prediction)
+- dynamische Peakblock-Erkennung
+- separate Analyse Heute / Morgen
+- dynamischer Energiebedarf basierend auf `input_number.zendure_max_entladeleistung`
+- Ermittlung der benötigten Restenergie über SoC-Min
+- Debug Pro Sensor mit Zeitprojektion
+
+### Verbesserungen
+- PID-Regler stabilisiert (I-Term Bremsung, Totzone)
+- Null-Einspeisung stärker priorisiert
+- Ladeempfehlung reagiert korrekt in KI-Phasen
+- Verbesserung der Standby-Logik bei SoC-Min
+- Performance-Optimierungen
+
+### Bugfixes
+- KI-Ladeplan falsche Peaks → korrigiert
+- Standby falsch ausgelöst → behoben
+- Frühzeitiges Laden durch fehlerhafte Bedingungen → korrigiert
