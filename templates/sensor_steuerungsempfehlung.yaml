@@ -1,8 +1,4 @@
-- sensor:
-    - name: "Zendure Akku Steuerungsempfehlung"
-      unique_id: zendure_akku_steuerungsempfehlung
-      state: >
-        {% set soc = states('sensor.solarflow_2400_ac_electric_level') | float(0) %}
+{% set soc = states('sensor.solarflow_2400_ac_electric_level') | float(0) %}
 {% set soc_min = states('input_number.zendure_soc_reserve_min') | float(12) %}
 {% set soc_max = states('input_number.zendure_soc_ziel_max') | float(95) %}
 
